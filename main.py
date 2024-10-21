@@ -168,26 +168,26 @@ def calc_distances(codon, mutations):
     return distances
 
 
-def extra_filters(genotype):
+def extra_filters(genotype, lib_spec):
     """ Include reads with one gap or one ambiguous site by coding the unknown site randomly """
     if genotype.count('9') == 1:
         idx = genotype.index('9')
-        genotype[idx] = randint(0, len(cas9_mutations_r1[idx]) - 1)
+        genotype[idx] = randint(0, len(lib_spec[idx]) - 1)
     if genotype.count('8') == 1:
         idx = genotype.index('8')
-        genotype[idx] = randint(0, len(cas9_mutations_r1[idx]) - 1)
+        genotype[idx] = randint(0, len(lib_spec[idx]) - 1)
     return genotype
 
 
-def classify_mutations(codon_file, mutation_specs):
+def classify_mutations(codon_file, mutation_specs, loose_filt=False):
     numbers = {"total_reads": 0, "reads_assigned": 0, "gaps": 0, "ambiguous": 0}
-    with open(codon_file) as reads:
-        element_counts = {item: 0 for item in iter_product(*(range(len(i)) for i in mutation_specs))}
-        # Remove library elements with double mutant at position 8/9
-        for key in list(element_counts.keys()):
-            if key[7] == 1 and key[8] == 1:
-                del element_counts[key]
+    element_counts = {item: 0 for item in iter_product(*(range(len(i)) for i in mutation_specs))}
 
+    with open(codon_file) as reads:
+        # Remove library elements with double mutant at position 8/9
+        #for key in list(element_counts.keys()):
+        #    if key[7] == 1 and key[8] == 1:
+        #        del element_counts[key]
         for i, read in enumerate(reads):
             genotype = list()
             fields = read.split(",")
@@ -205,8 +205,8 @@ def classify_mutations(codon_file, mutation_specs):
                     else:  # Multiple equal scores
                         mutation_id = '8'  # ambiguous
                 genotype.append(mutation_id)
-            # this line can be used to buy back reads if low coverage, but not recommended if sufficient coverage
-            #genotype = extra_filters(genotype)
+            if loose_filt:    # Include reads with one ambiguous or gapped site
+                genotype = extra_filters(genotype, mutation_specs)
             try:
                 element_counts[tuple(genotype)] += 1
                 numbers["reads_assigned"] += 1
@@ -215,19 +215,26 @@ def classify_mutations(codon_file, mutation_specs):
                     numbers["gaps"] += 1
                 elif '8' in genotype:
                     numbers["ambiguous"] += 1
+                else:
+                    # Read not able to be classified
+                    print(genotype)
+                    raise Exception
             numbers["total_reads"] += 1
     return element_counts, numbers
 
 
 # Input data files
-reference_fn = "unused_files/C9-r2-ref.fasta"
-paf_fn = "unused_files/C9r2-ins.paf"
+reference_fn = "sample_data/inputs/C9-r2-ref.fasta"
+paf_fn = "sample_data/inputs/Cas9-r2-sample.paf"
 
 # Internally used file with reads and codons - useful for data inspection
-mutation_fn = "mutations.csv"
+mutation_fn = "sample_data/outputs/Cas9-r2-sample_mutations.csv"
 
 # Output file with library element counts
-count_fn = "C9r2_counts.csv"
+count_fn = "sample_data/outputs/Cas9-r2-sample_counts.csv"
+
+# Loose filtering (keep reads with one ambiguous or gapped site)
+loose_filtering = True
 
 # Library specification to use (1 or 2)
 lib_spec = 2
@@ -286,7 +293,7 @@ else:
 process_codons(reference_fn, paf_fn, cas9_site_list, mutation_fn, report=10000)
 
 # This will classify the reads created by process_codons into a table of element counts and a list of summary stats
-element_counts, numbers = classify_mutations(mutation_fn, cas9_mutations_r2)
+element_counts, numbers = classify_mutations(mutation_fn, cas9_mutations_r2, loose_filt=loose_filtering)
 
 # This will print the data in element counts to file
 with open(count_fn, mode="w") as count_file:
